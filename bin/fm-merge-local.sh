@@ -30,6 +30,11 @@ if [ "$#" -ne 1 ] || ! fm_pr_task_id_valid "$1"; then
   exit 2
 fi
 ID=$1
+require_principal_acceptance() {
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    python3 "$SCRIPT_DIR/fm-principal-gate.py" require "$ID" --phase accepted >/dev/null
+}
+require_principal_acceptance || exit 1
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: local merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
@@ -126,6 +131,7 @@ case "$hold_status" in
     exit 1
     ;;
 esac
+require_principal_acceptance || exit 1
 merge_status=0
 git -C "$PROJ" merge --ff-only "$BRANCH" >/dev/null || merge_status=$?
 fm_lock_release "$MERGE_CONTROL_LOCK" || true

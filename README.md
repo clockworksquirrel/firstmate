@@ -18,7 +18,7 @@
   /></a>
 </p>
 
-<h3 align="center">Talk to one agent. Ship with a crew.</h3>
+<h3 align="center">Talk to one agent. Get work done.</h3>
 
 <p align="center">
   <img alt="firstmate - talk to one agent, ship with a crew" src="assets/banner.png" width="100%" />
@@ -37,11 +37,17 @@ firstmate is not a model, not a harness, not a skill, not an MCP server, and not
 firstmate is an agent distro for running a crew of agents.
 An agent distro is a portable directory of instructions, skills, tooling, policies, and state conventions that turns a general-purpose agent into a specialized one.
 There is no app to install: the cloned repo is the distro - `AGENTS.md`, bundled firstmate skills, and helper scripts that any terminal coding agent can follow.
-Launching a supported harness inside it for your primary session instantiates your first mate - and makes you the captain.
+Launching a supported coding agent inside it starts your coordinator session.
+The coordinator uses your preferred name, without pirate or nautical roleplay.
+
+This distribution defaults to local OpenCode, with Astra coordinating, two planned Fable worker slots, and additional Astra workers as needed.
+Start with the [local OpenCode setup guide](docs/local-opencode.md), which also explains the public-main and private-dev approval defaults.
 
 ## Features
 
 - **One liaison** - you talk only to the first mate; it dispatches, supervises, escalates only real decisions, and reports plain outcomes.
+- **Optional principal-review profile** - keep that one conversation while two independent reviewers check the plan before implementation and the result before acceptance.
+- **Native hands-free decision intake** - both `prompt` and `no_prompt` are supported; main defaults to `prompt`, while a private development variant changes only the tracked approval default.
 - **A visible crew** - every crewmate works in its own tmux window, Herdr tab, or experimental zellij tab, cmux workspace, or Orca terminal you can watch or type into; the first mate reconciles.
 - **Disposable worktrees** - each task runs in a clean [treehouse](https://github.com/kunchenguid/treehouse) git worktree, or an Orca-managed worktree when `backend=orca`, so parallel work on one repo never collides.
 - **Two task shapes** - ship tasks deliver authorized changes; scout tasks leave standalone investigation reports when the intake contract warrants separate research.
@@ -81,11 +87,12 @@ Launch it with `--trust`, or none of its project hooks load; it also has no turn
 
 ```sh
 gh auth login
-git clone https://github.com/kunchenguid/firstmate
+git clone https://github.com/clockworksquirrel/firstmate
 cd firstmate
 ```
 
-Then launch one of the co-primary harnesses; AGENTS.md takes over from there:
+Use the [local OpenCode setup and launch path](docs/local-opencode.md) for this distribution.
+The other upstream launch examples below are alternatives only when the user explicitly requests a switch:
 
 **Claude Code**
 
@@ -212,6 +219,8 @@ Firstmate's skills live in two separate places with different audiences:
 
 - [docs/architecture.md](docs/architecture.md) - maintainer architecture for the crew, supervision, worktrees, secondmates, and project modes.
 - [docs/configuration.md](docs/configuration.md) - environment variables, `FM_HOME`, runtime backend selection, optional Relay and its X and Discord setup steps, trusted external process-event adapter setup, the files you set, and harness support.
+- [docs/principal-coordination.md](docs/principal-coordination.md) - opt into the two-reviewer Pinchpoint and Fable coordination profile while keeping Firstmate as the only conversation.
+- [docs/handsfree-approvals.md](docs/handsfree-approvals.md) - use the built-in hands-free answer intake, inspect or change its persistent mode, and understand its authority limits.
 - [docs/extension-bindings.md](docs/extension-bindings.md) - maintainer architecture for the narrow trusted external `process-event-adapter/1` package, binding, handshake, and evidence boundary.
 - [docs/remote-secondmates.md](docs/remote-secondmates.md) - current setup, routing, transfer, recovery, and safety behavior for whole-home remote second mates.
 - [docs/calm.md](docs/calm.md) - current Pi `/calm` behavior and supported presentation limits.

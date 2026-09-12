@@ -266,6 +266,13 @@ reject_repo_overrides "$@" || exit 1
 reject_head_overrides "$@" || exit 1
 reject_protected_forge_args "$@" || exit 1
 
+require_principal_acceptance() {
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    python3 "$SCRIPT_DIR/fm-principal-gate.py" require "$ID" --phase accepted >/dev/null
+}
+# Check before recording PR state or contacting a forge, then again at handoff.
+require_principal_acceptance || exit 1
+
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: PR merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
@@ -960,6 +967,7 @@ case "$PROVIDER" in
     away_status=0
     require_current_away_authority || away_status=$?
     [ "$away_status" -eq 0 ] || exit "$away_status"
+    require_principal_acceptance || exit 1
     merge_status=0
     merge_output=$(gh pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" \
       --match-head-commit "$FM_PR_MERGE_HEAD" \
@@ -1008,6 +1016,7 @@ case "$PROVIDER" in
     away_status=0
     require_current_away_authority || away_status=$?
     [ "$away_status" -eq 0 ] || exit "$away_status"
+    require_principal_acceptance || exit 1
     merge_status=0
     GITLAB_HOST="$FM_PR_HOST" glab mr merge "$PR_NUMBER" -R "$PROJECT_URL" \
       --sha "$FM_PR_MERGE_HEAD" --yes "$@" || merge_status=$?

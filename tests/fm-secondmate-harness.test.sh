@@ -7,9 +7,9 @@
 #   A) Harness split. config/secondmate-harness sets the harness the PRIMARY uses
 #      to launch SECONDMATE agents, independent of config/crew-harness (the
 #      crewmate harness). fm-harness.sh secondmate resolves the fallback chain
-#      config/secondmate-harness -> config/crew-harness -> own; an absent or
-#      "default" secondmate-harness behaves exactly as the crew harness did before
-#      this knob existed (full backward-compat). fm-spawn.sh resolves a secondmate
+#      config/secondmate-harness -> config/crew-harness -> opencode; an absent or
+#      "default" crew setting chooses OpenCode independently of the invoking
+#      process's harness. fm-spawn.sh resolves a secondmate
 #      launch through that mode, durably (every respawn re-resolves), while an
 #      explicit per-spawn harness arg still wins.
 #   B) Inheritance. The primary pushes a declared, extensible set of LOCAL
@@ -41,6 +41,9 @@
 #      spawn only when the harness also resolves from that file, so the pin is
 #      durable across every respawn while explicit per-spawn harness/model/effort
 #      flags still win.
+#      With no model pin, an OpenCode secondary coordinator resolves the lead
+#      Astra route and xhigh effort through the local runtime. The fixture's
+#      OpenCode executable serves a fake catalog only and refuses generation.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -65,12 +68,12 @@ TMP_ROOT=$(fm_test_tmproot fm-secondmate-harness)
 export FM_BACKEND=tmux
 
 # ===========================================================================
-# A) fm-harness.sh secondmate resolution + fallback (deterministic detect_own)
+# A) fm-harness.sh secondmate resolution + OpenCode fallback
 # ===========================================================================
-# detect_own is pinned to claude via CLAUDECODE=1 so the "fall through to own"
-# cases are reproducible. Each row sets crew-harness / secondmate-harness in a
+# detect_own is pinned to claude via CLAUDECODE=1 to prove that absent/default
+# configuration does not inherit the invoking harness. Each row sets the files in a
 # fresh config dir (a literal '-' means leave the file absent) and asserts BOTH
-# the secondmate resolution AND that crew resolution is unchanged (backward-compat).
+# the secondary coordinator resolution and the worker resolution.
 #   <label>^<crew-harness>^<secondmate-harness>^<expect-secondmate>^<expect-crew>
 test_harness_resolution() {
   local label crew sm exp_sm exp_crew case_dir cfg got_sm got_crew n
@@ -88,16 +91,17 @@ test_harness_resolution() {
     [ "$got_sm" = "$exp_sm" ] || fail "$label: secondmate resolved '$got_sm', expected '$exp_sm'"
     [ "$got_crew" = "$exp_crew" ] || fail "$label: crew resolved '$got_crew', expected '$exp_crew'"
   done <<'ROWS'
-both absent -> own (backward-compat)^-^-^claude^claude
+both absent -> OpenCode despite invoking Claude^-^-^opencode^opencode
 crew set, secondmate absent -> crew (backward-compat)^codex^-^codex^codex
 crew set, secondmate set -> secondmate wins, crew untouched^codex^grok^grok^codex
-crew absent, secondmate set -> secondmate value, crew own^-^grok^grok^claude
+crew absent, secondmate set -> explicit coordinator, OpenCode worker^-^grok^grok^opencode
 signed Pi wrapper remains a distinct secondmate value^codex^pi-signed^pi-signed^codex
 secondmate=default defers to crew^codex^default^codex^codex
-crew=default resolves to own, secondmate follows^default^-^claude^claude
-secondmate=default with crew absent -> own^-^default^claude^claude
+crew=default resolves to OpenCode, secondmate follows^default^-^opencode^opencode
+secondmate=default with crew absent -> OpenCode^-^default^opencode^opencode
+both default -> OpenCode^default^default^opencode^opencode
 ROWS
-  pass "A1 fm-harness.sh secondmate resolves the fallback chain; crew mode unchanged"
+  pass "A1 secondary coordinator and worker fallbacks select OpenCode while explicit choices win"
 }
 
 test_cursor_marker_detection() {
@@ -147,12 +151,13 @@ test_secondmate_model_effort_tokens() {
     [ "$got_m" = "$exp_model" ] || fail "$label: model resolved '$got_m', expected '$exp_model'"
     [ "$got_e" = "$exp_effort" ] || fail "$label: effort resolved '$got_e', expected '$exp_effort'"
   done <<'ROWS'
-absent file -> own harness, empty model/effort^ABSENT^claude^^
+absent file -> OpenCode; model/effort resolved later by spawn^ABSENT^opencode^^
 bare harness only -> empty model/effort (backward-compat)^claude^claude^^
 harness + model -> model only^claude opus^claude^opus^
 harness + model + effort -> both^claude opus high^claude^opus^high
 signed Pi wrapper + model + effort preserves every token^pi-signed openai-codex/gpt-5.6-sol max^pi-signed^openai-codex/gpt-5.6-sol^max
-default harness token -> falls back to crew, empty model/effort^default^claude^^
+default harness token -> OpenCode; model/effort resolved later by spawn^default^opencode^^
+explicit OpenCode token -> no file-level model/effort^opencode^opencode^^
 extra whitespace between tokens is tolerated^grok   grok-4    xhigh^grok^grok-4^xhigh
 leading/trailing blank lines and a comment are skipped^# a comment\n\nclaude opus low\n^claude^opus^low
 ROWS
@@ -416,6 +421,29 @@ test_propagate_lib() {
 # propagates the crew harness into the home's config.
 # ===========================================================================
 
+# Serve only a local fixture catalog. Any accidental OpenCode generation or
+# other invocation fails instead of falling through to the installed executable.
+make_opencode_catalog_stub() {
+  local fakebin=$1
+  cat > "$fakebin/opencode" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ -n "${FM_TEST_OPENCODE_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$FM_TEST_OPENCODE_LOG"
+fi
+if [ "$#" -ne 1 ] || [ "$1" != models ]; then
+  echo 'fixture refuses OpenCode calls other than models' >&2
+  exit 97
+fi
+if [ -n "${FM_TEST_OPENCODE_CATALOG:-}" ]; then
+  cat "$FM_TEST_OPENCODE_CATALOG"
+else
+  printf '%s\n' 'fixture/gpt-6-astra' 'fixture/claude-fable-5-1'
+fi
+SH
+  chmod +x "$fakebin/opencode"
+}
+
 # A tmux stub that accepts every subcommand and prints nothing, so no window
 # pre-exists and the spawn proceeds to write its meta. Echoes the fakebin dir.
 make_noop_tmux() {
@@ -426,6 +454,7 @@ make_noop_tmux() {
 exit 0
 SH
   chmod +x "$fakebin/tmux"
+  make_opencode_catalog_stub "$fakebin"
   printf '%s\n' "$fakebin"
 }
 
@@ -519,23 +548,67 @@ test_spawn_backward_compat_crew_fallback() {
   pass "B3 spawn: an absent secondmate-harness falls back to the crew harness (backward-compat)"
 }
 
-# Bare backward-compat: no config at all. The secondmate falls through to its own
-# harness (claude here), and with no inheritable file the home is left untouched -
-# no config/ side effects.
-test_spawn_bare_backward_compat() {
-  local w sm meta
-  w="$TMP_ROOT/spawn-bare"
-  sm="$w/sm"
-  make_seeded_home "$sm" sm
+# Absent/default configuration selects the lead route, not the invoking Claude
+# process or the Fable worker-pair route. The terminal only records the command.
+test_spawn_default_uses_local_lead() {
+  local setting w sm meta launchlog cataloglog out rc launch
+  for setting in absent default; do
+    w="$TMP_ROOT/spawn-local-lead-$setting"
+    sm="$w/sm"
+    mkdir -p "$w/home/config"
+    if [ "$setting" = default ]; then
+      printf 'default\n' > "$w/home/config/crew-harness"
+      printf 'default\n' > "$w/home/config/secondmate-harness"
+    fi
+    make_seeded_home "$sm" sm
+    launchlog="$w/launch.log"
+    cataloglog="$w/catalog.log"
+    out=$(FM_TEST_OPENCODE_LOG="$cataloglog" \
+      spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); rc=$?
+    expect_code 0 "$rc" "$setting OpenCode secondary coordinator spawn failed: $out"
 
-  spawn_secondmate "$w" sm "$sm"
+    meta="$w/home/state/sm.meta"
+    [ "$(meta_harness "$meta")" = opencode ] || fail "$setting: expected OpenCode"
+    [ "$(meta_field "$meta" model)" = fixture/gpt-6-astra ] \
+      || fail "$setting: lead model was not pinned to the catalog's exact Astra route"
+    [ "$(meta_field "$meta" effort)" = xhigh ] || fail "$setting: lead effort was not xhigh"
+    launch=$(cat "$launchlog")
+    assert_contains "$launch" "fm-local-runtime.py' launch" "$setting: local runtime was not used"
+    assert_contains "$launch" "--model 'fixture/gpt-6-astra'" "$setting: launch lost its exact model"
+    assert_contains "$launch" "--effort 'xhigh'" "$setting: launch lost xhigh effort"
+    [ -s "$cataloglog" ] || fail "$setting: spawn did not consult the fixture model catalog"
+    awk '$0 != "models" {exit 1}' "$cataloglog" || fail "$setting: unexpected OpenCode invocation"
+    [ ! -e "$sm/config/crew-dispatch.json" ] || fail "$setting: invented a worker dispatch profile"
+    if [ "$setting" = absent ]; then
+      [ ! -e "$sm/config/crew-harness" ] || fail "absent: invented a worker harness setting"
+    else
+      [ "$(cat "$sm/config/crew-harness")" = default ] || fail "default: failed to inherit the explicit default"
+    fi
+  done
+  pass "B4 absent/default secondary coordinator uses catalog-pinned OpenCode Astra with xhigh"
+}
 
-  meta="$w/home/state/sm.meta"
-  [ "$(meta_harness "$meta")" = claude ] \
-    || fail "bare: secondmate launched on '$(meta_harness "$meta")', expected own harness claude"
-  [ -e "$sm/config/crew-dispatch.json" ] && fail "bare: an unset primary still created a home crew-dispatch.json"
-  [ -e "$sm/config/crew-harness" ] && fail "bare: an unset primary still created a home crew-harness"
-  pass "B4 spawn: no config at all -> own harness and no propagation side effects"
+test_spawn_default_refuses_unresolved_lead() {
+  local shape w sm launchlog catalog out rc
+  for shape in missing ambiguous; do
+    w="$TMP_ROOT/spawn-unresolved-lead-$shape"
+    sm="$w/sm"
+    make_seeded_home "$sm" sm
+    catalog="$w/catalog"
+    if [ "$shape" = missing ]; then
+      printf 'fixture/claude-fable-5-1\n' > "$catalog"
+    else
+      printf '%s\n' 'one/gpt-6-astra' 'two/gpt-6-astra' > "$catalog"
+    fi
+    launchlog="$w/launch.log"
+    out=$(FM_TEST_OPENCODE_CATALOG="$catalog" \
+      spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); rc=$?
+    [ "$rc" -ne 0 ] || fail "$shape lead route should refuse"
+    assert_contains "$out" 'absent or ambiguous' "$shape: wrong route refusal"
+    [ ! -e "$w/home/state/sm.meta" ] || fail "$shape: unresolved route published a task"
+    [ ! -s "$launchlog" ] || fail "$shape: unresolved route reached the terminal launch"
+  done
+  pass "B4b missing or ambiguous Astra refuses before task publication or terminal launch"
 }
 
 # An explicit per-spawn harness arg wins over config/secondmate-harness.
@@ -661,6 +734,7 @@ exit 0
 SH
   chmod +x "$fakebin/tmux"
   fm_fake_exit0 "$fakebin" pi
+  make_opencode_catalog_stub "$fakebin"
   printf '%s\n' "$fakebin"
 }
 
@@ -930,10 +1004,9 @@ SH
   pass "C9 spawn: secondmate launch pins supervision to its own harness"
 }
 
-# The harness fallback chain (secondmate-harness -> crew-harness -> own) still
-# resolves correctly with no model/effort tokens anywhere in the chain, and a
-# crew/scout (non-secondmate) launch is entirely unaffected by this feature: no
-# model/effort is invented for it even though its own project has no profile set.
+# An explicit worker harness still controls the coordinator fallback without
+# inventing model/effort tokens for that non-OpenCode selection. Worker launches
+# must not consume a secondary coordinator's profile tokens.
 test_spawn_fallback_chain_and_crew_scout_unaffected() {
   local w sm meta home proj wt fakebin launchlog id launch
   w="$TMP_ROOT/spawn-fallback-and-crew"
@@ -1047,6 +1120,7 @@ make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
+  make_opencode_catalog_stub "$fakebin"
   fm_fake_exit0 "$fakebin" node chrome-devtools-axi
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
   cat > "$fakebin/gh-axi" <<'SH'
@@ -2615,7 +2689,8 @@ test_dash_leading_process_names_are_basename_operands
 test_propagate_lib
 test_spawn_split_and_inherit
 test_spawn_backward_compat_crew_fallback
-test_spawn_bare_backward_compat
+test_spawn_default_uses_local_lead
+test_spawn_default_refuses_unresolved_lead
 test_spawn_explicit_harness_wins
 test_spawn_unverified_secondmate_harness_refused
 test_spawn_cursor_secondmate_launches_with_its_primary_contract

@@ -2,10 +2,10 @@
 # Detect the agent harness this process tree runs on.
 # Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|unknown
 #        fm-harness.sh crew             print the effective CREWMATE harness
-#                                        (config/crew-harness; "default" resolves to own)
+#                                        (config/crew-harness; "default" resolves to opencode)
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
 #                                        SECONDMATE agents: config/secondmate-harness ->
-#                                        config/crew-harness -> own. "default" or absent
+#                                        config/crew-harness -> opencode. "default" or absent
 #                                        defers to the crew resolution, so an unset
 #                                        secondmate-harness behaves exactly as the crew
 #                                        harness did before this knob existed.
@@ -205,11 +205,11 @@ ancestry_names_omp() {
 }
 
 # Resolve the effective crewmate harness: config/crew-harness (a bare adapter
-# name) wins; absent or "default" mirrors firstmate's own harness.
+# name) records an explicit choice; absent or "default" uses local OpenCode.
 resolve_crew() {
   local crew=
   [ -f "$CONFIG/crew-harness" ] && crew=$(tr -d '[:space:]' < "$CONFIG/crew-harness" || true)
-  if [ -z "$crew" ] || [ "$crew" = "default" ]; then detect_own; else echo "$crew"; fi
+  if [ -z "$crew" ] || [ "$crew" = "default" ]; then echo opencode; else echo "$crew"; fi
 }
 
 # Print the first non-empty, non-comment line of config/secondmate-harness
@@ -246,7 +246,7 @@ secondmate_field() {
 }
 
 # Resolve the harness the PRIMARY uses to launch SECONDMATE agents: a fallback
-# chain config/secondmate-harness -> config/crew-harness -> own. An absent or
+# chain config/secondmate-harness -> config/crew-harness -> opencode. An absent or
 # "default" secondmate-harness token defers to the crew resolution, so an unset
 # secondmate-harness behaves exactly as before this knob existed (a secondmate
 # launched on the crew harness). config/secondmate-harness is the PRIMARY's own

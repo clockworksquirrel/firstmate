@@ -47,6 +47,9 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/timeout" "$fakebin/cursor-agent"
+  # shellcheck disable=SC2016 # The generated fixture reads its own arguments.
+  printf '%s\n' '#!/usr/bin/env bash' 'if [ "${1:-}" = models ]; then printf "%s\n" anthropic/claude-sonnet-4-5 example/gpt-6-astra example/claude-fable-5-1; else exit 99; fi' > "$fakebin/opencode"
+  chmod +x "$fakebin/opencode"
   make_spawn_pi_probe "$fakebin" pi
   make_spawn_pi_probe "$fakebin" pi-signed
   printf '%s\n' "$fakebin"
@@ -558,7 +561,7 @@ test_cursor_failed_catalog_probe_does_not_block_spawn() {
   pass "cursor preserves the requested model when its live catalog is unreachable"
 }
 
-test_opencode_threads_model_and_ignores_effort_axis() {
+test_opencode_threads_model_and_effort_through_wrapper() {
   local rec id out status launch
   id=profile-opencode-z7
   rec=$(make_spawn_case profile-opencode opencode "$id")
@@ -566,15 +569,33 @@ test_opencode_threads_model_and_ignores_effort_axis() {
 
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --model anthropic/claude-sonnet-4-5 --effort high)
   status=$?
-  expect_code 0 "$status" "opencode spawn with model and ignored effort should succeed"
+  expect_code 0 "$status" "opencode spawn with model and wrapper effort should succeed"
   assert_meta_profile "$HOME_DIR/state/$id.meta" opencode anthropic/claude-sonnet-4-5 high
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "opencode --model 'anthropic/claude-sonnet-4-5' --prompt" \
-    "opencode launch did not thread model"
-  assert_not_contains "$launch" "--effort" "opencode launch must not pass unsupported --effort"
+  assert_contains "$launch" "fm-local-runtime.py' launch --model 'anthropic/claude-sonnet-4-5' --effort 'high' --prompt" \
+    "opencode launch did not thread model and effort through the isolated wrapper"
+  assert_contains "$launch" "FM_HOME='$HOME_DIR'" "approval hook must use the primary's private home"
   assert_not_contains "$launch" "--variant" "opencode launch must not pass run-only --variant"
   assert_not_contains "$launch" "--thinking" "opencode launch must not pass pi thinking flag"
-  pass "opencode receives --model and omits the unsupported effort axis"
+  pass "OpenCode wrapper receives model, effort, and the selected private home"
+}
+
+test_opencode_worker_slots() {
+  local rec id out status launch slot model effort
+  for slot in 1 2 3; do
+    id="profile-slot-$slot"
+    rec=$(make_spawn_case "$id" opencode "$id")
+    read_case_record "$rec"
+    if [ "$slot" -le 2 ]; then model=example/claude-fable-5-1; effort=default; else model=example/gpt-6-astra; effort=xhigh; fi
+    out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --worker-slot "$slot")
+    status=$?
+    expect_code 0 "$status" "numbered OpenCode slot should dispatch"
+    assert_meta_profile "$HOME_DIR/state/$id.meta" opencode "$model" "$effort"
+    launch=$(cat "$LAUNCH_LOG")
+    assert_contains "$launch" "--model '$model'" "slot selected the wrong model"
+    assert_contains "$out" "spawned $id" "slot did not dispatch"
+  done
+  pass "first two worker slots use Fable, and the third uses Astra xhigh"
 }
 
 test_native_effort_validator_keeps_axes_separate() {
@@ -1317,7 +1338,8 @@ test_grok_omits_invalid_xhigh_reasoning_effort
 test_cursor_threads_model_workspace_and_omits_effort_axis
 test_cursor_refuses_model_absent_from_live_catalog
 test_cursor_failed_catalog_probe_does_not_block_spawn
-test_opencode_threads_model_and_ignores_effort_axis
+test_opencode_threads_model_and_effort_through_wrapper
+test_opencode_worker_slots
 test_native_effort_validator_keeps_axes_separate
 test_native_pi_ultra_is_explicit_and_model_scoped
 test_batch_preserves_native_ultra

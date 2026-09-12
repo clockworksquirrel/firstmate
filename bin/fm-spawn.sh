@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
+# --worker-slot N selects a planned one-based worker slot through the local
+# runtime policy: 1/2 use the worker pair profile, later slots use worker_extra.
+# Slots are assigned by First Mate per workflow, not by process completion order.
 # Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
@@ -491,6 +494,7 @@ KIND=ship
 KIND_SET=0
 HARNESS_ARG=
 MODEL=
+WORKER_SLOT=
 EFFORT=
 BACKEND_ARG=
 MODE=
@@ -514,6 +518,7 @@ for a in "$@"; do
     case "$want_value" in
       harness) HARNESS_ARG=$a; HARNESS_SET=1 ;;
       model) MODEL=$a; MODEL_SET=1 ;;
+      worker-slot) WORKER_SLOT=$a ;;
       effort) EFFORT=$a; EFFORT_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
       mode) MODE=$a; MODE_SET=1 ;;
@@ -531,6 +536,7 @@ for a in "$@"; do
     --harness) want_value=harness ;;
     --harness=*) HARNESS_ARG=${a#--harness=}; HARNESS_SET=1 ;;
     --model) want_value=model ;;
+    --worker-slot) want_value=worker-slot ;;
     --model=*) MODEL=${a#--model=}; MODEL_SET=1 ;;
     --effort) want_value=effort ;;
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
@@ -546,6 +552,24 @@ for a in "$@"; do
   esac
 done
 [ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 1; }
+if [ -n "$WORKER_SLOT" ]; then
+  [ "$KIND" != secondmate ] || { echo "error: worker-slot applies to workers, not a secondary coordinator" >&2; exit 1; }
+  [ "${#POS[@]}" -le 2 ] || { echo "error: worker-slot cannot be combined with a positional runtime or raw launch command" >&2; exit 1; }
+  for slot_pos in "${POS[@]}"; do
+    case "$slot_pos" in *=*) echo "error: assign a separate worker-slot to each task; batch slots are unsupported" >&2; exit 1 ;; esac
+  done
+  [ "$MODEL_SET" -eq 0 ] && [ "$HARNESS_SET" -eq 0 ] && [ "$EFFORT_SET" -eq 0 ] || {
+    echo "error: worker-slot cannot be combined with another runtime/model/effort selection" >&2
+    exit 1
+  }
+  WORKER_PROFILE=$(python3 "$SCRIPT_DIR/fm-local-runtime.py" check worker --slot "$WORKER_SLOT") || exit 1
+  HARNESS_ARG=$(printf '%s' "$WORKER_PROFILE" | jq -r '.runtime')
+  MODEL=$(printf '%s' "$WORKER_PROFILE" | jq -r '.model')
+  EFFORT=$(printf '%s' "$WORKER_PROFILE" | jq -r '.effort')
+  HARNESS_SET=1
+  MODEL_SET=1
+  [ -z "$EFFORT" ] || EFFORT_SET=1
+fi
 [ "$HARNESS_SET" -eq 0 ] || [ -n "$HARNESS_ARG" ] || { echo "error: --harness requires a non-empty value" >&2; exit 1; }
 [ "$MODEL_SET" -eq 0 ] || [ -n "$MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 1; }
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
@@ -1190,6 +1214,15 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+# Cooperative review gate; scouts can prepare plans/reviews before ship approval.
+require_principal_spawn() {
+  FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" FM_STATE_OVERRIDE="$STATE" \
+    python3 "$SCRIPT_DIR/fm-principal-gate.py" require "$ID" \
+      --phase authorized --kind "$KIND" >/dev/null
+}
+if [ "$RELAUNCH" -eq 0 ]; then
+  require_principal_spawn || exit 1
+fi
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
     echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
@@ -1353,6 +1386,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   RELAUNCH_PRIOR_HARNESS=$(fm_meta_get "$RELAUNCH_META" harness)
   KIND=$(fm_meta_get "$RELAUNCH_META" kind)
   [ -n "$KIND" ] || KIND=ship
+  require_principal_spawn || exit 1
   MODE=$(fm_meta_get "$RELAUNCH_META" mode)
   YOLO=$(fm_meta_get "$RELAUNCH_META" yolo)
   RELAUNCH_WT=$(fm_meta_get "$RELAUNCH_META" worktree)
@@ -1511,7 +1545,7 @@ launch_template() {
         printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
       ;;
-    opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    opencode) printf '%s' 'python3 __FMRUNTIME__ launch __MODELFLAG____EFFORTFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     pi|pi-signed)
       printf '%s' '__PIBIN____PITUIMODE__'
       if [ "$kind" = secondmate ]; then
@@ -1790,6 +1824,19 @@ fi
 if [ "$HARNESS" = omp ]; then
   omp_model_validate "$OMP_BIN" "$MODEL" || exit 1
 fi
+if [ "$HARNESS" = opencode ] && [ "$RAW_LAUNCH" = 0 ]; then
+  if [ -z "$MODEL" ] || [ "$MODEL" = default ]; then
+    if [ "$KIND" = secondmate ]; then
+      OPENCODE_PROFILE=$(python3 "$SCRIPT_DIR/fm-local-runtime.py" check lead) || exit 1
+      MODEL=$(printf '%s' "$OPENCODE_PROFILE" | jq -r '.model')
+      [ "$EFFORT_SET" -eq 1 ] || EFFORT=$(printf '%s' "$OPENCODE_PROFILE" | jq -r '.effort')
+    else
+      echo "error: OpenCode worker dispatch requires --worker-slot N or an explicitly selected --model" >&2
+      exit 1
+    fi
+  fi
+  MODEL=$(python3 "$SCRIPT_DIR/fm-local-runtime.py" resolve "$MODEL") || exit 1
+fi
 
 secondmate_registry_value() {
   secondmate_registry_field "$DATA/secondmates.md" "$1" "$2"
@@ -1912,6 +1959,9 @@ effort_flag_for_harness() {
   local harness=$1 effort=$2 model=${3:-}
   [ -n "$effort" ] && [ "$effort" != default ] || return 0
   case "$harness" in
+    opencode)
+      printf -- '--effort %s ' "$(shell_quote "$effort")"
+      ;;
     claude)
       case "$effort" in
         low|medium|high|xhigh|max) printf -- '--effort %s ' "$(shell_quote "$effort")" ;;
@@ -1970,9 +2020,8 @@ effort_flag_for_harness() {
     # --config-override, but that flag is single-value (see
     # rovo_config_override_flag below) so it is built there, merged with the
     # mandatory allowedExternalPaths grant, rather than here.
-    # opencode's interactive `opencode --prompt` launch has a verified --model
-    # flag but no verified effort flag. Its `opencode run --variant` flag belongs
-    # to a different, non-interactive launch mode, so fm-spawn does not pass it.
+    # OpenCode effort is passed to our wrapper, which supplies model options
+    # for an ordinary interactive agent, never OpenCode run/plan/build mode.
     # kimi likewise has no reasoning-effort flag; the requested axis stays in
     # task metadata but never reaches the launch command. Cursor encodes effort
     # in model ids such as cursor-grok-4.5-high, so it also receives no separate
@@ -3878,6 +3927,11 @@ LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
 LAUNCH=${LAUNCH//__OMPEXT__/$sq_ompext}
 LAUNCH=${LAUNCH//__OMPWORKERCFG__/$sq_ompcfg}
 LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
+sq_local_runtime=$(shell_quote "$SCRIPT_DIR/fm-local-runtime.py")
+LAUNCH=${LAUNCH//__FMRUNTIME__/$sq_local_runtime}
+if [ "$HARNESS" = opencode ] && [ "$KIND" != secondmate ]; then
+  LAUNCH="FM_HOME=$(shell_quote "$FM_HOME") FM_CONFIG_OVERRIDE=$(shell_quote "$CONFIG") $LAUNCH"
+fi
 case "$HARNESS" in
   pi|pi-signed) LAUNCH=${LAUNCH//__PIBIN__/"$(shell_quote "$PI_BIN")"} ;;
   cursor) LAUNCH=${LAUNCH//__CURSORBIN__/"$(shell_quote "$CURSOR_BIN")"} ;;
@@ -4002,6 +4056,9 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
   fi
   LAUNCH="$LAUNCH_ENV_PREFIX /bin/sh -c $(shell_quote "$LAUNCH")"
 fi
+# Recheck after setup, before any model launch. This does not hold a gate lock
+# across launch or authenticate a same-user caller.
+require_principal_spawn || exit 1
 sleep 0.3
 spawn_send_literal "$T" "$LAUNCH"
 sleep 0.3

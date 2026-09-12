@@ -209,10 +209,9 @@ strength of a typo.
 
 ## Push to talk, and the setting that refuses
 
-Push to talk is the default: the microphone is closed until you ask for it. That
-is `$0.0101` per minute against `$0.0151` for an open microphone, and it is the
-setting nobody has decided yet, so this build does not choose the expensive one
-on the captain's behalf.
+Push to talk is the default: microphone bytes enter the uplink only while you hold the gate open.
+The client keeps `sounddevice.RawInputStream` open for the client session, so the operating system may still show its microphone indicator while the uplink gate is closed.
+That is `$0.0101` per minute against `$0.0151` for an open microphone, and it is the setting nobody has decided yet, so this build does not choose the expensive one on the captain's behalf.
 
 `--listen open-mic` exists as a setting and refuses at startup today.
 An open microphone needs something to decide when you stopped speaking, and the client has no end-of-speech detection, so the mode would open a turn, stream audio forever and never mark a boundary, which leaves the relay appending to a session that has already answered.

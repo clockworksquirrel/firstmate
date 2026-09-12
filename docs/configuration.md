@@ -326,11 +326,13 @@ Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's stop hoo
 `config/crew-harness` is a local, gitignored file containing one adapter name for crewmate and scout launches.
 When pi-signed is selected, Firstmate preserves `FM_PI_HARNESS=pi-signed` and refuses the launch if the selected executable is unavailable rather than falling back to pi; [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns executable resolution and launch mechanics.
 Plain Pi launches set `FM_PI_HARNESS=pi`, so a signed primary's environment cannot relabel a plain Pi worker.
-When it is absent or contains `default`, crewmates mirror the firstmate's own harness.
+When it is absent or contains `default`, workers use local OpenCode.
+Changing the program or model requires the user's explicit instruction; an unavailable route never causes an automatic switch to a subscription or another model.
 `config/secondmate-harness` is a separate local, gitignored file containing the adapter the primary uses to launch secondmate agents, optionally followed by model and effort tokens on the same line.
 The first non-empty, non-comment line is parsed as `<harness> [<model>] [<effort>]`.
-A bare `<harness>` preserves the previous behavior: harness only, with no model or effort launch flag.
-When the harness token is absent or `default`, secondmate launch falls back through `config/crew-harness` and then the primary's own harness, and no model or effort is read from that file.
+A bare `<harness>` records only the adapter, with model and effort resolved separately.
+For OpenCode secondary coordinators without an explicit model pin, the distribution resolves the configured lead model and effort before launch.
+When the harness token is absent or `default`, secondmate launch uses `config/crew-harness` or local OpenCode, and no model or effort is read from that file.
 `fm-harness.sh secondmate-model` and `fm-harness.sh secondmate-effort` expose only the optional tokens from `config/secondmate-harness`; `config/crew-harness` remains a bare adapter-name file.
 Changing this pin affects the next secondmate spawn or control-plane relaunch; the relaunch profile rules are owned by [`docs/agent-control.md`](agent-control.md#transactional-relaunch).
 An explicit harness argument to `fm-spawn.sh` still overrides either config file for that spawn only.
@@ -450,6 +452,13 @@ Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstr
 Malformed JSON, an empty or malformed rule/default array, an unverified harness, or an effort value unsupported by that harness is reported as `CREW_DISPATCH: invalid config/crew-dispatch.json - ...`; missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
 While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
+
+## Principal coordination profile (config/coordination-profile)
+
+An absent file keeps Firstmate's ordinary project delivery lifecycle.
+One line containing `principal-review` selects the provider-neutral two-reviewer lifecycle for work routed through that home.
+The profile keeps Firstmate as the user's only conversational contact and stores private gate evidence under `state/principal-coordination/`.
+[`docs/principal-coordination.md`](principal-coordination.md) owns setup, behavior, and limits.
 
 ## Toolchain
 
@@ -953,6 +962,18 @@ The voice handover depends on `note`, so it keeps working in a home that has con
 Each account, model and voice file above is read as its first line that is not blank and not a `#` comment, so a comment above the value is fine.
 The two read files are parsed differently: `config/voice-read-scope` must hold the bare word and nothing but blank space around it, so a comment header there refuses instead of being skipped, while every line of `config/voice-read-deny` that is not blank and not a `#` comment is one more substring.
 `FM_VOICE_RELAY` and `FM_VOICE_PYTHON` belong to the laptop rather than to a home, so they have no config file: `bin/fm-voice-client.py` requires the relay path as a flag or that variable and carries no default path.
+
+## Hands-free approval mode (config/handsfree-approval.json)
+
+This mode is shared by the decision-intake helper and the OpenCode action hook.
+An absent override uses the tracked `.firstmate-defaults.json` value: `prompt` on public main and `no_prompt` in the private development variant.
+Use `bin/fm-handsfree-answer.sh mode` to print the effective mode.
+Use `bin/fm-handsfree-answer.sh set-mode prompt` or `set-mode no_prompt` to write the choice atomically as an owner-only mode-`0600` file.
+The exact JSON shape is `{"version":1,"mode":"no_prompt"}` or `{"version":1,"mode":"prompt"}`.
+Malformed, linked, non-owner, multiply linked, oversized, or incorrectly permissioned policy files stop with an error.
+The tracked starting example is [`docs/examples/handsfree-approval.json`](examples/handsfree-approval.json).
+[`docs/handsfree-approvals.md`](handsfree-approvals.md) owns the capture schema, single-Firstmate interaction, and authority boundary.
+[`docs/local-opencode.md`](local-opencode.md) owns the distribution's model routes, isolated launch, and private development setup.
 
 ## Environment variables
 
