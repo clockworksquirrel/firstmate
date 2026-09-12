@@ -9,6 +9,7 @@ set -euo pipefail
 TMP_ROOT=$(fm_test_tmproot fm-handsfree-tool)
 export FM_HOME="$TMP_ROOT/home"
 export FM_CONFIG_OVERRIDE="$FM_HOME/config"
+export FM_GLOBAL_CONFIG_OVERRIDE="$TMP_ROOT/global-config"
 export FM_ROOT_OVERRIDE="$ROOT"
 export PYTHONDONTWRITEBYTECODE=1
 PARSER="$ROOT/bin/fm-handsfree-tool.py"

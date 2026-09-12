@@ -49,7 +49,8 @@ It does not rewrite a project's OpenCode plugin files.
 [Hands-free approvals](handsfree-approvals.md) owns the prompt behavior and its limits.
 Public main defaults to `prompt`.
 The development copy has identical implementation and tests, with only `.firstmate-defaults.json` changed to `no_prompt`.
-A local approval override can take precedence over either default, so inspect the effective mode before use.
+An instance override takes precedence over the personal global policy, which takes precedence over either repository default.
+Use `bin/fm-handsfree-answer.sh policy` to see the effective mode and its source.
 No-prompt mode removes this project's extra confirmation step; native permissions, user authorization, and platform controls still apply.
 
 ## Private GitHub development copy

@@ -6,7 +6,10 @@ The action helper and the captured-answer intake share the `policy_mode()` imple
 
 ## Default and mode persistence
 
-[`.firstmate-defaults.json`](../.firstmate-defaults.json) selects the default when no local override exists.
+Policy selection uses the first available source: the instance's `config/handsfree-approval.json`, the personal global policy, then [`.firstmate-defaults.json`](../.firstmate-defaults.json).
+If the accessibility broker's `~/.codex/accessible-approvals/broker-policy.json` is installed, it is the shared global policy; otherwise the global location is `~/.config/firstmate/handsfree-approval.json`.
+This reuses an existing user choice instead of creating a competing mode for the new workflow.
+`FM_GLOBAL_CONFIG_OVERRIDE` selects a separate global configuration directory for an explicitly isolated profile or test.
 Public `main` uses `{"approval_mode":"prompt"}`.
 The private GitHub companion's `dev` branch shares the same implementation, with only that file changed to `{"approval_mode":"no_prompt"}`.
 There is no separate development hook or permission implementation.
@@ -19,6 +22,7 @@ Show the current effective mode:
 
 ```sh
 bin/fm-handsfree-answer.sh mode
+bin/fm-handsfree-answer.sh policy
 ```
 
 Persist either choice:
@@ -26,10 +30,14 @@ Persist either choice:
 ```sh
 bin/fm-handsfree-answer.sh set-mode no_prompt
 bin/fm-handsfree-answer.sh set-mode prompt
+bin/fm-handsfree-answer.sh set-global-mode no_prompt
+bin/fm-handsfree-answer.sh set-global-mode prompt
 ```
 
-The command writes `config/handsfree-approval.json` under the selected `FM_HOME`, or under `FM_CONFIG_OVERRIDE` when supplied.
-An explicit local override takes precedence on either branch.
+`set-mode` writes `config/handsfree-approval.json` under the selected `FM_HOME`, or under `FM_CONFIG_OVERRIDE` when supplied.
+`set-global-mode` writes the personal global policy, which is shared across workflow instances on this user account and is never committed to either repository.
+An explicit instance override takes precedence on either branch; `policy` reports the effective mode, source, and path.
+Marked workers cannot change either policy through these commands.
 The file must be a regular owner-owned mode-`0600` file with one link and uses exactly `{"version":1,"mode":"no_prompt"}` or `{"version":1,"mode":"prompt"}`.
 Malformed or unsafe configuration stops with an error rather than silently choosing a mode.
 

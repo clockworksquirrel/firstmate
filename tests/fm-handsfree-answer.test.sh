@@ -10,6 +10,7 @@ CONFIG_ROOT="$HOME_ROOT/config"
 PARSER="$ROOT/bin/fm-handsfree-answer.py"
 WRAPPER="$ROOT/bin/fm-handsfree-answer.sh"
 EXPECTED_DEFAULT="${FM_TEST_EXPECT_DEFAULT:-prompt}"
+export FM_GLOBAL_CONFIG_OVERRIDE="$TMP_ROOT/global-config"
 
 mkdir -p "$CONFIG_ROOT"
 chmod 0700 "$CONFIG_ROOT"

@@ -40,7 +40,8 @@ Do not change the action's identity or edit its private state to obtain another 
 ## Policy and authority
 
 Both entry points use the same policy loader in `bin/fm-handsfree-answer.py`.
-An absent local override uses `.firstmate-defaults.json`: public `main` selects `prompt`, while the private GitHub companion's `dev` branch uses the same implementation with only `approval_mode` changed to `no_prompt` in that file.
+An absent instance override uses the personal global policy before `.firstmate-defaults.json`; the guide owns precedence and the command that reports the effective source.
+Repository defaults remain `prompt` on public `main` and `no_prompt` on private `dev`, with identical implementation otherwise.
 Use the guide's [mode commands](../../../docs/handsfree-approvals.md#default-and-mode-persistence) to inspect or change the user's selected mode; never switch modes merely to clear a blocked request.
 Unsafe or invalid policy is an error, not a reason to choose a permissive fallback.
 

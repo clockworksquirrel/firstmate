@@ -5,6 +5,8 @@
 #   printf '%s' '<firstmate.handsfree-answer.v1 JSON>' | fm-handsfree-answer.sh
 #   fm-handsfree-answer.sh mode
 #   fm-handsfree-answer.sh set-mode <prompt|no_prompt>
+#   fm-handsfree-answer.sh set-global-mode <prompt|no_prompt>
+#   fm-handsfree-answer.sh policy   # effective mode, source, and policy path
 #
 # bin/fm-handsfree-answer.py owns policy and input validation.
 # bin/fm-captain-hold.sh owns task identity, answer provenance, close mode,
@@ -14,13 +16,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 case "${1:-submit}" in
-  mode)
+  mode|policy)
     [ "$#" -eq 1 ] || exit 2
-    exec python3 "$SCRIPT_DIR/fm-handsfree-answer.py" mode
+    exec python3 "$SCRIPT_DIR/fm-handsfree-answer.py" "$1"
     ;;
-  set-mode)
+  set-mode|set-global-mode)
     [ "$#" -eq 2 ] || exit 2
-    exec python3 "$SCRIPT_DIR/fm-handsfree-answer.py" set-mode "$2"
+    exec python3 "$SCRIPT_DIR/fm-handsfree-answer.py" "$1" "$2"
     ;;
   submit)
     [ "$#" -le 1 ] || exit 2

@@ -966,7 +966,9 @@ The two read files are parsed differently: `config/voice-read-scope` must hold t
 ## Hands-free approval mode (config/handsfree-approval.json)
 
 This mode is shared by the decision-intake helper and the OpenCode action hook.
-An absent override uses the tracked `.firstmate-defaults.json` value: `prompt` on public main and `no_prompt` in the private development variant.
+An absent instance override uses the personal global policy, then the tracked `.firstmate-defaults.json` value if both overrides are absent.
+The approvals guide owns global-policy discovery, including reuse of an installed accessibility broker's existing mode.
+The repository values remain `prompt` on public main and `no_prompt` in the private development variant.
 Use `bin/fm-handsfree-answer.sh mode` to print the effective mode.
 Use `bin/fm-handsfree-answer.sh set-mode prompt` or `set-mode no_prompt` to write the choice atomically as an owner-only mode-`0600` file.
 The exact JSON shape is `{"version":1,"mode":"no_prompt"}` or `{"version":1,"mode":"prompt"}`.

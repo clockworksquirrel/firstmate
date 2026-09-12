@@ -6,6 +6,10 @@ licensed under Apache-2.0. See THIRD_PARTY_NOTICES.md.
 
 This program never closes a task or grants authority.
 It writes one validated tab-separated row for fm-captain-hold.sh answers.
+Policy precedence: instance config, personal global config, tracked defaults.
+An installed accessibility broker's personal policy is reused globally;
+otherwise global config is ~/.config/firstmate. FM_GLOBAL_CONFIG_OVERRIDE
+selects an explicit isolated profile. All policies use one owner-only schema.
 """
 
 import json
@@ -49,6 +53,16 @@ def config_dir():
     return Path(os.environ.get("FM_CONFIG_OVERRIDE") or effective_home() / "config")
 
 
+def global_policy_path():
+    override = os.environ.get("FM_GLOBAL_CONFIG_OVERRIDE")
+    if override:
+        return Path(override) / "handsfree-approval.json"
+    broker = Path.home() / ".codex" / "accessible-approvals" / "broker-policy.json"
+    if broker.exists() or broker.is_symlink():
+        return broker
+    return Path.home() / ".config" / "firstmate" / "handsfree-approval.json"
+
+
 def default_mode():
     try:
         data = json.loads((repository_root() / ".firstmate-defaults.json").read_text(encoding="utf-8"),
@@ -61,18 +75,19 @@ def default_mode():
     return data["approval_mode"]
 
 
-def policy_mode():
-    root = config_dir()
+def read_policy(path):
+    root = path.parent
     if root.exists() or root.is_symlink():
         metadata = os.lstat(root)
         if (not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode)
                 or metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) & 0o022):
             raise AnswerError("hands-free config directory has unsafe metadata")
-    path = root / "handsfree-approval.json"
     try:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
     except FileNotFoundError:
-        return default_mode()
+        if path.is_symlink():
+            raise AnswerError("hands-free approval policy must not be a symbolic link")
+        return None
     except OSError as error:
         raise AnswerError("hands-free approval policy cannot be read safely") from error
     try:
@@ -97,10 +112,26 @@ def policy_mode():
     return data["mode"]
 
 
-def write_policy(mode):
+def policy_info():
+    for source, path in (("instance", config_dir() / "handsfree-approval.json"), ("global", global_policy_path())):
+        mode = read_policy(path)
+        if mode is not None:
+            return {"mode": mode, "source": source, "path": str(path)}
+    return {"mode": default_mode(), "source": "repository",
+            "path": str(repository_root() / ".firstmate-defaults.json")}
+
+
+def policy_mode():
+    return policy_info()["mode"]
+
+
+def write_policy(mode, global_scope=False):
+    if os.environ.get("FM_TASK_ID"):
+        raise AnswerError("workers cannot change approval policy; report through the coordinator")
     if mode not in {"prompt", "no_prompt"}:
         raise AnswerError("hands-free approval mode must be prompt or no_prompt")
-    root = config_dir()
+    path = global_policy_path() if global_scope else config_dir() / "handsfree-approval.json"
+    root = path.parent
     try:
         root.mkdir(parents=True, mode=0o700)
     except FileExistsError:
@@ -110,7 +141,6 @@ def write_policy(mode):
             or metadata.st_uid != os.getuid()
             or stat.S_IMODE(metadata.st_mode) & 0o022):
         raise AnswerError("hands-free approval config directory has unsafe metadata")
-    path = root / "handsfree-approval.json"
     payload = (json.dumps({"version": 1, "mode": mode}, separators=(",", ":"))
                + "\n").encode("utf-8")
     descriptor, temporary = tempfile.mkstemp(prefix=".handsfree-", dir=root)
@@ -180,12 +210,15 @@ def main():
         if arguments == ["mode"]:
             print(policy_mode())
             return 0
-        if len(arguments) == 2 and arguments[0] == "set-mode":
-            write_policy(arguments[1])
+        if arguments == ["policy"]:
+            print(json.dumps(policy_info()))
+            return 0
+        if len(arguments) == 2 and arguments[0] in ("set-mode", "set-global-mode"):
+            write_policy(arguments[1], global_scope=arguments[0] == "set-global-mode")
             print(arguments[1])
             return 0
         if arguments not in ([], ["submit"]):
-            raise AnswerError("usage: fm-handsfree-answer.py [submit|mode|set-mode <prompt|no_prompt>]")
+            raise AnswerError("usage: fm-handsfree-answer.py [submit|mode|policy|set-mode MODE|set-global-mode MODE]")
         task_id, answer, label, close_mode, confirmed = read_answer()
         mode = policy_mode()
         if mode == "prompt" and not confirmed:
